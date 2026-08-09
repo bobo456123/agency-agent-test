@@ -1,0 +1,96 @@
+# CI: 后端测试 + 前端构建（两个独立子项目，非 workspaces）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # 支持手动触发
+
+# 最小权限，仅读取代码
+permissions:
+  contents: read
+
+# 防止悬挂任务长时间占用 runner
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.32.1'
+
+jobs:
+  # ============ Job 1: 后端测试（Express + better-sqlite3 + Jest） ============
+  server-test:
+    name: Server Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # 1. 拉取代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. 安装指定版本的 pnpm（不在根目录 install）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      # 3. 配置 Node 20 LTS，并用 server 锁文件做 pnpm store 缓存 key
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'server/pnpm-lock.yaml'
+
+      # 4. 安装依赖（锁文件不可变，保证可复现）
+      #    better-sqlite3 会触发 node-gyp 编译，Ubuntu runner 自带 build-essential + python3
+      - name: Install dependencies
+        working-directory: server
+        run: pnpm install --frozen-lockfile
+
+      # 5. 跑 Jest + Supertest 集成测试
+      - name: Run tests
+        working-directory: server
+        run: pnpm test
+
+  # ============ Job 2: 前端构建（React + Vite） ============
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # 1. 拉取代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. 安装指定版本的 pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      # 3. 配置 Node 20 LTS，并用 frontend 锁文件做 pnpm store 缓存 key
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+
+      # 4. 安装依赖（锁文件不可变）
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # 5. 生产构建
+      - name: Build
+        working-directory: frontend
+        run: pnpm build
