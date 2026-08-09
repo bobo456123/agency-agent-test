@@ -50,11 +50,17 @@ jobs:
 
       # 4. 安装依赖（锁文件不可变，保证可复现）
       #    better-sqlite3 会触发 node-gyp 编译，Ubuntu runner 自带 build-essential + python3
+      #    pnpm 10 默认跳过依赖的 build script，已在 server/package.json 的 pnpm.onlyBuiltDependencies 白名单中放行
       - name: Install dependencies
         working-directory: server
         run: pnpm install --frozen-lockfile
 
-      # 5. 跑 Jest + Supertest 集成测试
+      # 5. 诊断：验证 better-sqlite3 原生 .node 二进制已正确编译（缺失/ABI 不匹配会立刻报错而非段错）
+      - name: Smoke check better-sqlite3 native binary
+        working-directory: server
+        run: node -e "const D=require('better-sqlite3'); const db=new D(':memory:'); db.exec('CREATE TABLE t(x)'); db.prepare('INSERT INTO t VALUES (?)').run(1); console.log('better-sqlite3 native binary ok');"
+
+      # 6. 跑 Jest + Supertest 集成测试
       - name: Run tests
         working-directory: server
         run: pnpm test
